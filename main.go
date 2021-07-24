@@ -5,7 +5,12 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 	"time"
+
+	"github.com/PuerkitoBio/goquery"
+	"github.com/sclevine/agouti"
 )
 
 const (
@@ -13,44 +18,61 @@ const (
 	targetAccount = ""
 	replaceString = "[targetAccount]"
 
-	imageDirectoryPath = ""
+	imageDirectoryPath = "C:\\Users\\kawaguchi_takumi\\workspace\\instascraperStorage\\"
 	timeToStringFormat = "20060102150405"
 )
 
 func main() {
-	// doc, err := goquery.NewDocument("https://tabelog.com/")
-	// if err != nil {
-	// 	panic("Failed to get html.")
-	// }
-	// contents := doc.Find("h2.rsttop-heading1.rsttop-search__title")
-	// contents.Each(func(i int, s *goquery.Selection) {
-	// 	fmt.Print(strings.TrimSpace(s.Text()))
-	// })
-
-	// 保存先ディレクトリ作成
+	url := "https://www.instagram.com/[test]/?hl=ja"
 	directoryName := time.Now().Format(timeToStringFormat)
 	directoryPath := imageDirectoryPath + directoryName
 	if err := os.Mkdir(directoryPath, 0777); err != nil {
 		fmt.Println(err)
 	}
+	driver := agouti.ChromeDriver()
 
-	// 画像取得
-	imageUrl := "https://scontent-nrt1-1.cdninstagram.com/v/t51.2885-15/sh0.08/e35/s640x640/218653095_183383480434911_6078081123550727209_n.jpg?_nc_ht=scontent-nrt1-1.cdninstagram.com&_nc_cat=1&_nc_ohc=vNlDdILSMasAX-YdwVJ&edm=ABfd0MgBAAAA&ccb=7-4&oh=7042feb4a119a5d644f2b7682a6641c1&oe=60FD2641&_nc_sid=7bff83" // TBD
-
-	// アカウントが存在しない場合には処理を中断する
-
-	// 画像ダウンロード
-	response, err := http.Get(imageUrl)
-	if err != nil {
-		panic(err)
+	if err := driver.Start(); err != nil {
+		fmt.Printf("failed to start driver: %v", err)
 	}
-	defer response.Body.Close()
+	defer driver.Stop()
 
-	file, err := os.Create(directoryPath + "\\" + targetAccount + ".jpg")
+	page, err := driver.NewPage(agouti.Browser("chrome"))
 	if err != nil {
-		panic(err)
+		fmt.Printf("failed to open page: %v", err)
 	}
-	defer file.Close()
 
-	io.Copy(file, response.Body)
+	err = page.Navigate(url)
+	if err != nil {
+		fmt.Printf("failed to navigate: %v", err)
+	}
+
+	contentsDom, err := page.HTML()
+	if err != nil {
+		fmt.Printf("failed to get html: %v", err)
+	}
+
+	reader := strings.NewReader(contentsDom)
+	contents, _ := goquery.NewDocumentFromReader(reader)
+
+	contents.Find(".KL4Bh > img").Each(func(i int, s *goquery.Selection) {
+		img, _ := s.Attr("src")
+		res, err := http.Get(img)
+		if err != nil {
+			panic(err)
+		}
+		defer res.Body.Close()
+
+		fileName := directoryPath + "\\" + targetAccount + strconv.Itoa(i) + ".jpg"
+		file, err := os.Create(fileName)
+		if err != nil {
+			panic(err)
+		}
+		defer file.Close()
+
+		io.Copy(file, res.Body)
+		fmt.Println("download file: ", i)
+		time.Sleep(1 * time.Second)
+	})
+
+	fmt.Println("FIN")
 }
